@@ -1,0 +1,200 @@
+---
+title: "Storm analysis"
+author: "Daniel Mejia"
+date: "1/11/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load data
+
+```{r}
+# load required libraries
+
+library(dplyr)
+
+```
+
+```{r cache=TRUE}
+
+if (!exists("storm")){
+   storm <- read.csv2("repdata-data-StormData.csv", header = TRUE, sep=",")
+}
+```
+
+
+After some review of the data we can see that the EVTYPE factor has some problems. One of them  is that the values come in upper an lowe case, this cause that the same value is considered as a two diffrente values.
+
+We need to convert all the values to the uppercase.
+
+
+```{r}
+trim <- function(x) gsub("^\\s+|\\s$", "", x)
+
+storm$EVTYPE <- trim(as.character(storm$EVTYPE))
+storm$EVTYPE <- toupper(as.character(storm$EVTYPE))
+
+storm$EVTYPE <- as.factor(storm$EVTYPE)
+
+storm$FATALITIES <- as.numeric(as.character(storm$FATALITIES))
+storm$INJURIES <- as.numeric(as.character(storm$INJURIES))
+storm$PROPDMG <- as.numeric(as.character(storm$PROPDMG))
+storm$CROPDMG <- as.numeric(as.character(storm$CROPDMG))
+
+```
+
+
+Change to upper case the damage exponent
+
+
+```{r}
+storm$PROPDMGEXP <- toupper(as.character(storm$PROPDMGEXP))
+storm$CROPDMGEXP <- toupper(as.character(storm$CROPDMGEXP))
+
+storm$PROPDMGEXP <- as.factor(storm$PROPDMGEXP)
+storm$CROPDMGEXP <- as.factor(storm$CROPDMGEXP)
+```
+
+Select the damage with know exponent
+
+```{r}
+subs <- subset(storm, PROPDMGEXP %in% c("", "K", "M", "B") & CROPDMGEXP  %in% c("", "K", "M", "B"))
+
+subs$PROPDMG <- as.numeric(as.character(subs$PROPDMG))
+subs$PROPDMG <- ifelse(subs$PROPDMG == "", 0.0, subs$PROPDMG)
+subs$FATALITIES <- as.numeric(as.character(subs$FATALITIES))
+subs$INJURIES <- as.numeric(as.character(subs$INJURIES))
+
+subs$FATALITIES.INJURED <- subs$FATALITIES + subs$INJURIES
+ 
+subs$pdmg <- subs$PROPDMG
+
+subs$pdmg <- ifelse(subs$PROPDMGEXP == "", subs$PROPDMG * 1.0, subs$pdmg)
+subs$pdmg <- ifelse(subs$PROPDMGEXP == "M", subs$PROPDMG * 1000000.0, subs$pdmg)
+subs$pdmg <- ifelse(subs$PROPDMGEXP == "K", subs$PROPDMG * 1000.0, subs$pdmg)
+subs$pdmg <- ifelse(subs$PROPDMGEXP == "B", subs$PROPDMG * 1000000000.0, subs$pdmg)
+
+subs$CROPDMG <- as.numeric(as.character(subs$CROPDMG))
+subs$CROPDMG <- ifelse(subs$PROPDMG == "", 0.0, subs$CROPDMG)
+subs$cdmg <- subs$CROPDMG
+
+subs$cdmg <- ifelse(subs$CROPDMGEXP == "", subs$CROPDMG * 1.0, subs$cdmg)
+subs$cdmg <- ifelse(subs$CROPDMGEXP == "M", subs$CROPDMG * 1000000.0, subs$cdmg)
+subs$cdmg <- ifelse(subs$CROPDMGEXP == "K", subs$CROPDMG * 1000.0, subs$cdmg)
+subs$cdmg <- ifelse(subs$CROPDMGEXP == "B", subs$CROPDMG * 1000000000.0, subs$cdmg)
+
+
+subs$tdmg <- subs$pdmg + subs$cdmg
+
+```
+
+
+Calculate the total amount considering the exponent
+
+
+# Calculate aggregated values for fatalities, injured and cost
+
+```{r}
+
+vars <- c("EVTYPE", "BGN_DATE", "STATE", "FATALITIES", "INJURIES", "PROPDMG", "CROPDMG" )
+
+stormSub <- storm[, vars]
+
+stormSub$FATALITIES <- as.numeric(as.character(stormSub$FATALITIES))
+stormSub$INJURIES <- as.numeric(as.character(stormSub$INJURIES))
+stormSub$PROPDMG <- as.numeric(as.character(stormSub$PROPDMG))
+stormSub$CROPDMG <- as.numeric(as.character(stormSub$CROPDMG))
+
+
+
+
+# the date comes %m%d%Y
+stormSub$BGN_DATE <- as.Date(stormSub$BGN_DATE, "%m/%d/%Y")
+stormSub$YEAR <- format(stormSub$BGN_DATE, "%Y")
+stormSub$YEAR <- as.numeric(stormSub$YEAR)
+
+```
+
+
+Check if there is any NA values 
+
+```{r}
+
+sum(is.na(stormSub$FATALITIES))
+
+sum(is.na(stormSub$INJURIE))
+
+sum(is.na(stormSub$INJURIES))
+
+sum(is.na(stormSub$PROPDMG))
+
+sum(is.na(stormSub$CROPDMG))
+
+sum(is.na(stormSub$YEAR))
+```
+
+
+## Events with more fatalities in the period 
+```{r}
+
+agFatal <- with(subs, aggregate(list(FATALITIES=FATALITIES), list(EVTYPE=EVTYPE), sum))
+agFatal <- agFatal[order(-agFatal$FATALITIES), ]
+agFatalRes <- agFatal[1:10,]
+print(agFatalRes)
+# numberEvents <- aggregate(storm$EVTYPE, list(storm$EVTYPE), length)
+# evtTotal <- storm %>% group_by(EVTYPE) %>% tally()
+```
+
+
+
+
+# Fatalities Plot
+
+```{r}
+par(las=2)
+par(mar=c(5,8,4,4))
+barplot(agFatalRes$FATALITIES, names.arg = agFatalRes$EVTYPE, horiz = TRUE, col="green", cex.names=0.7)
+```
+
+## Events with the most number of injured people
+
+```{r}
+agInjuries <- with(subs, aggregate(list(INJURIES=INJURIES), list(EVTYPE=EVTYPE), sum))
+agInjuries <- agInjuries[order(-agInjuries$INJURIES), ]
+agInjuriesRes <- agInjuries[1:10,]
+
+```
+
+# Injuries Plot
+
+```{r}
+par(las=2)
+par(mar=c(5,8,4,4))
+
+
+barplot(agInjuriesRes$INJURIES, names.arg = agInjuriesRes$EVTYPE, horiz = TRUE, col="green", cex.names=0.7)
+```
+
+
+# The most costly Events (in USD)
+
+For this calculation the total cost is considering the damages in properties and the crop damages
+
+```{r}
+agDamages <- with(subs, aggregate(list(Total.Damages=tdmg), list(EVTYPE=EVTYPE), sum))
+agDamages <- agDamages[order(-agDamages$Total.Damages), ]
+agDamagesRes <- agDamages[1:10,]
+
+```
+
+
+# Damages Plot
+
+```{r}
+par(las=2)
+par(mar=c(5,8,4,4))
+barplot(agDamagesRes$Total.Damages, names.arg = agDamagesRes$EVTYPE, horiz = TRUE, col="green", cex.names=0.7)
+```
